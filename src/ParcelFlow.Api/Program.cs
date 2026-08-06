@@ -68,6 +68,8 @@ builder.Services.AddScoped<SmsNotificationAction>();
 builder.Services.AddScoped<OpsWebhookAction>();
 builder.Services.AddScoped<IEventRule, RecipientDeliveredNotificationRule>();
 builder.Services.AddScoped<IEventRule, RepeatedFailureOpsAlertRule>();
+builder.Services.AddScoped<IEventRule, RecipientReturnScheduledNotificationRule>();
+builder.Services.AddScoped<IEventRule, ReturnScheduledOpsAlertRule>();
 
 // ---- Background workers ----
 builder.Services.AddHostedService<PendingAssignmentsWorker>();

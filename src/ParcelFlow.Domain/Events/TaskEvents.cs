@@ -36,3 +36,11 @@ public sealed class TaskCancelledEvent : IDomainEvent
     public required DeliveryTask Task { get; init; }
     public required string Reason { get; init; }
 }
+
+public sealed class ReturnScheduledEvent : IDomainEvent
+{
+    public required string TenantId { get; init; }
+    public required DateTime OccurredUtc { get; init; }
+    public required DeliveryTask Task { get; init; }
+    public required string Reason { get; init; }
+}

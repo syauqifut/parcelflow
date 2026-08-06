@@ -157,6 +157,30 @@ public class DeliveryTaskServiceTests
         Assert.Equal(DeliveryTaskStatus.AttemptFailed, history[^2].To);
         Assert.Equal(DeliveryTaskStatus.AttemptFailed, history[^1].From);
         Assert.Equal(DeliveryTaskStatus.ReturnScheduled, history[^1].To);
+        Assert.IsType<ReturnScheduledEvent>(
+            Assert.Single(world.Events.Dispatched, e => e is ReturnScheduledEvent));
+        Assert.DoesNotContain(world.Events.Dispatched,
+            e => e is DeliveryAttemptFailedEvent { AttemptNumber: 3 });
+    }
+
+    [Fact]
+    public async Task First_and_second_failed_attempts_do_not_emit_return_scheduled_event()
+    {
+        using var world = new TestWorld();
+        var parcel = await world.SeedParcelAsync();
+        var driver = await world.SeedDriverAsync();
+        await world.SeedOpenShiftAsync(driver);
+        var task = (await world.TaskService.CreateForParcelAsync(parcel.Id)).Value!;
+        await world.TaskService.AssignAsync(task.Id, driver.Id);
+        await world.TaskService.RecordPickupAsync(task.Id);
+        await world.TaskService.StartTransitAsync(task.Id);
+
+        await world.TaskService.RecordFailedAttemptAsync(task.Id, "failure 1");
+        await world.TaskService.RetryAsync(task.Id);
+        await world.TaskService.RecordFailedAttemptAsync(task.Id, "failure 2");
+
+        Assert.DoesNotContain(world.Events.Dispatched, e => e is ReturnScheduledEvent);
+        Assert.Equal(2, world.Events.Dispatched.Count(e => e is DeliveryAttemptFailedEvent));
     }
 
     [Fact]

@@ -184,14 +184,27 @@ public sealed class DeliveryTaskService
 
         await _tasks.UpsertAsync(task, ct);
 
-        await _events.DispatchAsync(new DeliveryAttemptFailedEvent
+        if (task.Status == DeliveryTaskStatus.ReturnScheduled)
         {
-            TenantId = _tenant.TenantId,
-            OccurredUtc = now,
-            Task = task,
-            AttemptNumber = task.AttemptCount,
-            Reason = reason
-        }, ct);
+            await _events.DispatchAsync(new ReturnScheduledEvent
+            {
+                TenantId = _tenant.TenantId,
+                OccurredUtc = now,
+                Task = task,
+                Reason = reason
+            }, ct);
+        }
+        else
+        {
+            await _events.DispatchAsync(new DeliveryAttemptFailedEvent
+            {
+                TenantId = _tenant.TenantId,
+                OccurredUtc = now,
+                Task = task,
+                AttemptNumber = task.AttemptCount,
+                Reason = reason
+            }, ct);
+        }
 
         return Result<DeliveryTask>.Ok(task);
     }

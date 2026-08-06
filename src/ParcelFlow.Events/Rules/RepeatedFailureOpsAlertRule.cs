@@ -4,7 +4,7 @@ using ParcelFlow.Events.Actions;
 namespace ParcelFlow.Events.Rules;
 
 /// <summary>
-/// From the second failed delivery attempt onwards, alert the tenant's ops
+/// From the second failed delivery attempt, alert the tenant's ops
 /// channel so a human can decide what to do with the parcel.
 /// </summary>
 public sealed class RepeatedFailureOpsAlertRule : IEventRule
@@ -22,7 +22,7 @@ public sealed class RepeatedFailureOpsAlertRule : IEventRule
 
     public bool AppliesTo(IDomainEvent domainEvent)
     {
-        return domainEvent is DeliveryAttemptFailedEvent { AttemptNumber: >= AlertFromAttempt };
+        return domainEvent is DeliveryAttemptFailedEvent { AttemptNumber: AlertFromAttempt };
     }
 
     public async Task ExecuteAsync(IDomainEvent domainEvent, CancellationToken ct)
