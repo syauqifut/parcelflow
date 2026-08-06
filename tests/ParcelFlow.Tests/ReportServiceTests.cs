@@ -157,7 +157,7 @@ public class ReportServiceTests
         var report = await world.ReportService.GetWeeklySummaryAsync(reportDay);
 
         var row = Assert.Single(report.Rows);
-        Assert.Equal(3, row.AverageHoursFromAssignmentToDelivery);
+        Assert.Equal(3.5, row.AverageHoursFromAssignmentToDelivery);
     }
 
     [Fact]
@@ -187,6 +187,29 @@ public class ReportServiceTests
 
         var row = Assert.Single(report.Rows);
         Assert.Equal(1, row.TaskDelivered);
+    }
+
+    [Fact]
+    public async Task Weekly_summary_counts_failures_on_undelivered_tasks()
+    {
+        using var world = new TestWorld();
+        var reportDay = new DateTime(2026, 7, 8, 0, 0, 0, DateTimeKind.Utc);
+        var parcel = await world.SeedParcelAsync();
+        var driver = await world.SeedDriverAsync();
+        await world.SeedOpenShiftAsync(driver);
+
+        var task = (await world.TaskService.CreateForParcelAsync(parcel.Id)).Value!;
+        await world.TaskService.AssignAsync(task.Id, driver.Id);
+        await world.TaskService.RecordPickupAsync(task.Id);
+        await world.TaskService.StartTransitAsync(task.Id);
+        await world.TaskService.RecordFailedAttemptAsync(task.Id, "recipient absent");
+
+        var report = await world.ReportService.GetWeeklySummaryAsync(reportDay);
+
+        var row = Assert.Single(report.Rows);
+        Assert.Equal(0, row.TaskDelivered);
+        Assert.Equal(1, row.TaskFailedAttempts);
+        Assert.Equal(0, row.AverageHoursFromAssignmentToDelivery);
     }
 
     [Fact]

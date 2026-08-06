@@ -85,54 +85,77 @@ public sealed class ReportService
     }
 
     /// <summary>
-    /// Weekly delivery summary: 
+    /// Weekly driver performance summary for the previous 7 days ending on
+    /// <paramref name="dayUtc"/> (exclusive): deliveries, failed delivery
+    /// attempts (from audit history), and average assignment-to-delivery hours.
     /// </summary>
     public async Task<WeeklySummaryReport> GetWeeklySummaryAsync(DateTime dayUtc, CancellationToken ct = default)
     {
         var to = dayUtc.Date;
-        var from = to.AddDays(-7); //last 7 days
+        var from = to.AddDays(-7);
 
         var tenantId = _tenant.TenantId;
 
-        var tasks = (await _tasks.QueryAsync(
-                tenantId,
-                t => t.DeliveredUtc.HasValue &&
-                    t.DeliveredUtc.Value >= from &&
-                    t.DeliveredUtc.Value < to,
-                ct))
-            .GroupBy(t => t.DriverId)
-            .Select(g => new
-            {
-                DriverId = g.Key,
-                TaskDelivered = g.Count(),
-                TaskFailedAttempts = g.Sum(t => t.History.Count(h =>
-                    h.To == DeliveryTaskStatus.AttemptFailed &&
-                    h.AtUtc >= from &&
-                    h.AtUtc < to)),
-                AverageHoursFromAssignmentToDelivery = g
+        var deliveredTasks = await _tasks.QueryAsync(
+            tenantId,
+            t => t.DeliveredUtc.HasValue &&
+                 t.DeliveredUtc.Value >= from &&
+                 t.DeliveredUtc.Value < to,
+            ct);
+
+        var tasksWithFailures = await _tasks.QueryAsync(
+            tenantId,
+            t => t.History.Any(h =>
+                h.To == DeliveryTaskStatus.AttemptFailed &&
+                h.AtUtc >= from &&
+                h.AtUtc < to),
+            ct);
+
+        var deliveredByDriver = deliveredTasks
+            .GroupBy(t => t.DriverId ?? "")
+            .ToDictionary(
+                g => g.Key,
+                g => new
+                {
+                    TaskDelivered = g.Count(),
+                    AverageHours = g
                         .Where(t => t.AssignedUtc.HasValue)
                         .Select(t => (t.DeliveredUtc!.Value - t.AssignedUtc!.Value).TotalHours)
                         .DefaultIfEmpty(0)
                         .Average()
-            })
-            .ToList();
+                });
+
+        var failuresByDriver = tasksWithFailures
+            .GroupBy(t => t.DriverId ?? "")
+            .ToDictionary(
+                g => g.Key,
+                g => g.Sum(t => CountFailedAttemptsInWindow(t, from, to)));
+
+        var driverIds = deliveredByDriver.Keys
+            .Concat(failuresByDriver.Keys)
+            .Distinct();
 
         var drivers = (await _drivers.QueryAsync(tenantId, d => true, ct))
             .ToDictionary(d => d.Id);
 
-
-        var rows = tasks
-            .Select(task =>
+        var rows = driverIds
+            .Select(driverId =>
             {
-                drivers.TryGetValue(task.DriverId ?? "", out var driver);
+                Driver? driver = null;
+                if (driverId.Length > 0)
+                {
+                    drivers.TryGetValue(driverId, out driver);
+                }
+
+                deliveredByDriver.TryGetValue(driverId, out var delivered);
+                failuresByDriver.TryGetValue(driverId, out var failedAttempts);
 
                 return new WeeklySummaryRow
                 {
                     DriverName = driver?.Name ?? "(unassigned)",
-                    TaskDelivered = task.TaskDelivered,
-                    TaskFailedAttempts = task.TaskFailedAttempts,
-                    AverageHoursFromAssignmentToDelivery =
-                        task.AverageHoursFromAssignmentToDelivery
+                    TaskDelivered = delivered?.TaskDelivered ?? 0,
+                    TaskFailedAttempts = failedAttempts,
+                    AverageHoursFromAssignmentToDelivery = delivered?.AverageHours ?? 0
                 };
             })
             .OrderBy(r => r.DriverName)
@@ -145,6 +168,12 @@ public sealed class ReportService
             Rows = rows
         };
     }
+
+    private static int CountFailedAttemptsInWindow(DeliveryTask task, DateTime from, DateTime to) =>
+        task.History.Count(h =>
+            h.To == DeliveryTaskStatus.AttemptFailed &&
+            h.AtUtc >= from &&
+            h.AtUtc < to);
 }
 
 public sealed class DailySummaryReport
