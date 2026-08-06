@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\ParcelFlow.Storage\ParcelFlow.Storage.csproj" />
     <ProjectReference Include="..\..\src\ParcelFlow.Services\ParcelFlow.Services.csproj" />
     <ProjectReference Include="..\..\src\ParcelFlow.Events\ParcelFlow.Events.csproj" />
+    <ProjectReference Include="..\..\src\ParcelFlow.Api\ParcelFlow.Api.csproj" />
   </ItemGroup>
 
 </Project>

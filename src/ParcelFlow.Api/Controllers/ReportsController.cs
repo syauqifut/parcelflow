@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using ParcelFlow.Services.Reporting;
 
@@ -28,5 +30,35 @@ public sealed class ReportsController : ControllerBase
 
         var report = await _reports.GetDailySummaryAsync(day, ct);
         return Ok(report);
+    }
+
+    [HttpGet("weekly-summary")]
+    public async Task<IActionResult> WeeklySummary([FromQuery] DateTime day, CancellationToken ct)
+    {
+        if (day == default)
+        {
+            day = DateTime.UtcNow.Date;
+        }
+        var report = await _reports.GetWeeklySummaryAsync(day, ct);
+        var csv = BuildWeeklySummaryCsv(report);
+        return File(Encoding.UTF8.GetBytes(csv), "text/csv", "weekly-summary.csv");
+    }
+
+    private static string BuildWeeklySummaryCsv(WeeklySummaryReport report)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("Driver,Delivered Tasks,Failed Attempts,Average Hours");
+
+        foreach (var row in report.Rows)
+        {
+            sb.AppendLine(
+                $"{row.DriverName}," +
+                $"{row.TaskDelivered}," +
+                $"{row.TaskFailedAttempts}," +
+                $"{row.AverageHoursFromAssignmentToDelivery.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        return sb.ToString();
     }
 }

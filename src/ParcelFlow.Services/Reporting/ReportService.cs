@@ -83,6 +83,64 @@ public sealed class ReportService
             Rows = rows
         };
     }
+
+    /// <summary>
+    /// Weekly delivery summary: 
+    /// </summary>
+    public async Task<WeeklySummaryReport> GetWeeklySummaryAsync(DateTime dayUtc, CancellationToken ct = default)
+    {
+        var to = dayUtc.Date;
+        var from = to.AddDays(-7); //last 7 days
+
+        var tenantId = _tenant.TenantId;
+
+        var tasks = (await _tasks.QueryAsync(
+                tenantId,
+                t => t.DeliveredUtc.HasValue &&
+                    t.DeliveredUtc.Value >= from &&
+                    t.DeliveredUtc.Value < to,
+                ct))
+            .GroupBy(t => t.DriverId)
+            .Select(g => new
+            {
+                DriverId = g.Key,
+                TaskDelivered = g.Count(),
+                TaskFailedAttempts = g.Sum(t => t.AttemptCount),
+                AverageHoursFromAssignmentToDelivery = g
+                    .Where(t => t.AssignedUtc.HasValue)
+                    .Average(t => (t.DeliveredUtc!.Value - t.AssignedUtc!.Value).TotalHours)
+            })
+            .ToList();
+
+        var drivers = (await _drivers.QueryAsync(tenantId, d => true, ct))
+            .ToDictionary(d => d.Id);
+
+        var rows = new List<WeeklySummaryRow>();
+        foreach (var task in tasks)
+        {
+            Driver? driver = null;
+            if (task.DriverId is not null)
+            {
+                drivers.TryGetValue(task.DriverId, out driver);
+            }
+
+            rows.Add(new WeeklySummaryRow
+            {
+                DriverName = driver?.Name ?? "(unassigned)",
+                TaskDelivered = task.TaskDelivered,
+                TaskFailedAttempts = task.TaskFailedAttempts,
+                AverageHoursFromAssignmentToDelivery = (int)task.AverageHoursFromAssignmentToDelivery
+            });
+        }
+
+Console.WriteLine(rows);
+        return new WeeklySummaryReport
+        {
+            FromDayUtc = from,
+            ToDayUtc = to,
+            Rows = rows
+        };
+    }
 }
 
 public sealed class DailySummaryReport
@@ -102,4 +160,19 @@ public sealed class DailySummaryRow
     public string DriverName { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public int AttemptCount { get; set; }
+}
+
+public sealed class WeeklySummaryReport
+{
+    public DateTime FromDayUtc { get; set; }
+    public DateTime ToDayUtc { get; set; }
+    public List<WeeklySummaryRow> Rows { get; set; } = new();
+}
+
+public sealed class WeeklySummaryRow
+{
+    public string DriverName { get; set; } = string.Empty;
+    public int TaskDelivered { get; set; } = 0;
+    public int TaskFailedAttempts { get; set; } = 0;
+    public int AverageHoursFromAssignmentToDelivery { get; set; } = 0;
 }
