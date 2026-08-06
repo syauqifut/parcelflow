@@ -105,35 +105,39 @@ public sealed class ReportService
             {
                 DriverId = g.Key,
                 TaskDelivered = g.Count(),
-                TaskFailedAttempts = g.Sum(t => t.AttemptCount),
+                TaskFailedAttempts = g.Sum(t => t.History.Count(h =>
+                    h.To == DeliveryTaskStatus.AttemptFailed &&
+                    h.AtUtc >= from &&
+                    h.AtUtc < to)),
                 AverageHoursFromAssignmentToDelivery = g
-                    .Where(t => t.AssignedUtc.HasValue)
-                    .Average(t => (t.DeliveredUtc!.Value - t.AssignedUtc!.Value).TotalHours)
+                        .Where(t => t.AssignedUtc.HasValue)
+                        .Select(t => (t.DeliveredUtc!.Value - t.AssignedUtc!.Value).TotalHours)
+                        .DefaultIfEmpty(0)
+                        .Average()
             })
             .ToList();
 
         var drivers = (await _drivers.QueryAsync(tenantId, d => true, ct))
             .ToDictionary(d => d.Id);
 
-        var rows = new List<WeeklySummaryRow>();
-        foreach (var task in tasks)
-        {
-            Driver? driver = null;
-            if (task.DriverId is not null)
-            {
-                drivers.TryGetValue(task.DriverId, out driver);
-            }
 
-            rows.Add(new WeeklySummaryRow
+        var rows = tasks
+            .Select(task =>
             {
-                DriverName = driver?.Name ?? "(unassigned)",
-                TaskDelivered = task.TaskDelivered,
-                TaskFailedAttempts = task.TaskFailedAttempts,
-                AverageHoursFromAssignmentToDelivery = (int)task.AverageHoursFromAssignmentToDelivery
-            });
-        }
+                drivers.TryGetValue(task.DriverId ?? "", out var driver);
 
-Console.WriteLine(rows);
+                return new WeeklySummaryRow
+                {
+                    DriverName = driver?.Name ?? "(unassigned)",
+                    TaskDelivered = task.TaskDelivered,
+                    TaskFailedAttempts = task.TaskFailedAttempts,
+                    AverageHoursFromAssignmentToDelivery =
+                        task.AverageHoursFromAssignmentToDelivery
+                };
+            })
+            .OrderBy(r => r.DriverName)
+            .ToList();
+
         return new WeeklySummaryReport
         {
             FromDayUtc = from,
@@ -174,5 +178,5 @@ public sealed class WeeklySummaryRow
     public string DriverName { get; set; } = string.Empty;
     public int TaskDelivered { get; set; } = 0;
     public int TaskFailedAttempts { get; set; } = 0;
-    public int AverageHoursFromAssignmentToDelivery { get; set; } = 0;
+    public double AverageHoursFromAssignmentToDelivery { get; set; } = 0;
 }
