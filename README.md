@@ -46,6 +46,19 @@ curl -X POST -H "X-Tenant-Id: nusantara-express" -H "Content-Type: application/j
 
 # Daily ops report
 curl -H "X-Tenant-Id: nusantara-express" "http://localhost:5000/api/reports/daily-summary?day=2026-07-01"
+
+# Record a failed delivery attempt (after start-transit)
+curl -X POST -H "X-Tenant-Id: nusantara-express" -H "Content-Type: application/json" \
+  -d '{"reason":"recipient absent"}' \
+  "http://localhost:5000/api/tasks/{taskId}/attempt-failed"
+
+# Retry after a failed attempt (blocked after the 3rd failure)
+curl -X POST -H "X-Tenant-Id: nusantara-express" \
+  "http://localhost:5000/api/tasks/{taskId}/retry"
+
+# Hub confirms return to sender (ReturnScheduled → Returned)
+curl -X POST -H "X-Tenant-Id: nusantara-express" \
+  "http://localhost:5000/api/tasks/{taskId}/return-completed"
 ```
 
 The `PendingAssignmentsWorker` runs inside the API host and sweeps for

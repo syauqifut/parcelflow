@@ -47,13 +47,26 @@ services take the tenant from the context, never from request payloads.
 
 The task state machine lives in
 `ParcelFlow.Domain/StateMachine/DeliveryTaskStateMachine.cs` and is the only
-sanctioned way to change a task's status. Current states: Created, Assigned,
-PickedUp, InTransit, AttemptFailed, Delivered (terminal), Cancelled (terminal).
+sanctioned way to change a task's status.
 
-Failed attempts increment `AttemptCount` and raise `DeliveryAttemptFailedEvent`.
-Operational policy for parcels that repeatedly fail delivery is owned by the
-tenant's ops team (they get an ops-webhook alert from the second failed
-attempt; see `RepeatedFailureOpsAlertRule`).
+**States:** Created, Assigned, PickedUp, InTransit, AttemptFailed,
+ReturnScheduled, Delivered (terminal), Returned (terminal), Cancelled (terminal).
+
+**Happy path:** Created → Assigned → PickedUp → InTransit → Delivered.
+
+**Retry path:** InTransit → AttemptFailed → InTransit (manual retry via
+`POST /api/tasks/{id}/retry`). Up to three delivery attempts are allowed.
+
+**Return-to-sender path:** On the third failed attempt the task automatically
+transitions AttemptFailed → ReturnScheduled in the same request (two history
+entries for audit). Retries are blocked once `AttemptCount` reaches 3. While
+ReturnScheduled, the parcel is assumed still with the driver en route back to
+the hub. The hub closes the task with
+`POST /api/tasks/{id}/return-completed` (ReturnScheduled → Returned).
+ReturnScheduled cannot be cancelled.
+
+Terminal states for opening a new task on the same parcel: Delivered,
+Returned, Cancelled.
 
 ## §5 — Events
 
@@ -64,6 +77,18 @@ failures are logged and never propagate to the caller. Notification actions
 seam is what matters.
 
 In production this dispatcher sits behind a message bus. Keep rules idempotent.
+
+| Event | When raised | Rules / notifications |
+|---|---|---|
+| `TaskDeliveredEvent` | Parcel handed to recipient | Recipient SMS (`RecipientDeliveredNotificationRule`) |
+| `DeliveryAttemptFailedEvent` | Attempts 1–2 fail (not attempt 3) | Attempt 2: ops webhook (`RepeatedFailureOpsAlertRule`) |
+| `ReturnScheduledEvent` | 3rd attempt fails; return scheduled | Recipient SMS + ops webhook (`RecipientReturnScheduledNotificationRule`, `ReturnScheduledOpsAlertRule`) |
+| `TaskAssignedEvent` | Driver assigned | (none wired) |
+| `TaskCancelledEvent` | Task cancelled | (none wired) |
+
+On the third failed attempt only `ReturnScheduledEvent` is raised — not
+`DeliveryAttemptFailedEvent` — so ops and the recipient each get a single
+return-specific notification.
 
 ## §6 — Reporting
 
