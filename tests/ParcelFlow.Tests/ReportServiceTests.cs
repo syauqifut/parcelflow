@@ -1,3 +1,5 @@
+using LegacyCourier.Common;
+using ParcelFlow.Domain.Entities;
 using ParcelFlow.Domain.StateMachine;
 using ParcelFlow.Tests.TestHelpers;
 using Xunit;
@@ -43,5 +45,39 @@ public class ReportServiceTests
         var report = await world.ReportService.GetDailySummaryAsync(world.Clock.UtcNow.Date);
 
         Assert.Equal(1, report.TotalFailedAttempts);
+    }
+
+    [Fact]
+    public async Task Daily_summary_is_scoped_to_requesting_tenant()
+    {
+        using var world = new TestWorld("tenant-a");
+        var day = world.Clock.UtcNow.Date;
+
+        var parcel = await world.SeedParcelAsync(reference: "A-001");
+        var driver = await world.SeedDriverAsync(name: "Driver A");
+        await world.SeedOpenShiftAsync(driver);
+        var task = (await world.TaskService.CreateForParcelAsync(parcel.Id)).Value!;
+        await world.TaskService.AssignAsync(task.Id, driver.Id);
+        await world.TaskService.RecordPickupAsync(task.Id);
+        await world.TaskService.StartTransitAsync(task.Id);
+        await world.TaskService.MarkDeliveredAsync(task.Id, null);
+
+        var otherParcel = await world.SeedParcelAsync("tenant-b", "B-001", "Manila");
+        var otherTask = new DeliveryTask
+        {
+            Id = IdGenerator.NewId("task"),
+            TenantId = "tenant-b",
+            ParcelId = otherParcel.Id,
+            Status = DeliveryTaskStatus.Delivered,
+            UpdatedUtc = day.AddHours(10)
+        };
+        await world.Tasks.UpsertAsync(otherTask);
+
+        var report = await world.ReportService.GetDailySummaryAsync(day);
+
+        Assert.Equal(1, report.TotalDelivered);
+        var row = Assert.Single(report.Rows);
+        Assert.Equal("A-001", row.ParcelReference);
+        Assert.DoesNotContain(report.Rows, r => r.ParcelReference == "B-001");
     }
 }

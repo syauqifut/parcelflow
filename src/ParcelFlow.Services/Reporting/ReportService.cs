@@ -1,5 +1,6 @@
 using ParcelFlow.Domain.Entities;
 using ParcelFlow.Domain.StateMachine;
+using ParcelFlow.Services;
 using ParcelFlow.Storage;
 
 namespace ParcelFlow.Services.Reporting;
@@ -14,15 +15,18 @@ namespace ParcelFlow.Services.Reporting;
 /// </summary>
 public sealed class ReportService
 {
+    private readonly ITenantContext _tenant;
     private readonly ITenantScopedRepository<DeliveryTask> _tasks;
     private readonly ITenantScopedRepository<Parcel> _parcels;
     private readonly ITenantScopedRepository<Driver> _drivers;
 
     public ReportService(
+        ITenantContext tenant,
         ITenantScopedRepository<DeliveryTask> tasks,
         ITenantScopedRepository<Parcel> parcels,
         ITenantScopedRepository<Driver> drivers)
     {
+        _tenant = tenant;
         _tasks = tasks;
         _parcels = parcels;
         _drivers = drivers;
@@ -37,15 +41,16 @@ public sealed class ReportService
         var from = dayUtc.Date;
         var to = from.AddDays(1);
 
-        // The DW job ran one pass over all tenants and split the output into
-        // per-tenant exports downstream, so the source query was tenant-wide.
-        var tasks = await _tasks.QueryAllTenantsAsync(
+        var tenantId = _tenant.TenantId;
+
+        var tasks = await _tasks.QueryAsync(
+            tenantId,
             t => t.UpdatedUtc >= from && t.UpdatedUtc < to,
             ct);
 
-        var parcels = (await _parcels.QueryAllTenantsAsync(p => true, ct))
+        var parcels = (await _parcels.QueryAsync(tenantId, p => true, ct))
             .ToDictionary(p => p.Id);
-        var drivers = (await _drivers.QueryAllTenantsAsync(d => true, ct))
+        var drivers = (await _drivers.QueryAsync(tenantId, d => true, ct))
             .ToDictionary(d => d.Id);
 
         var rows = new List<DailySummaryRow>();
