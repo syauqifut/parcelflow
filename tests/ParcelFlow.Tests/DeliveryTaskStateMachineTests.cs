@@ -17,6 +17,8 @@ public class DeliveryTaskStateMachineTests
     [InlineData(DeliveryTaskStatus.InTransit, DeliveryTaskStatus.AttemptFailed)]
     [InlineData(DeliveryTaskStatus.AttemptFailed, DeliveryTaskStatus.InTransit)]
     [InlineData(DeliveryTaskStatus.AttemptFailed, DeliveryTaskStatus.Cancelled)]
+    [InlineData(DeliveryTaskStatus.AttemptFailed, DeliveryTaskStatus.ReturnScheduled)]
+    [InlineData(DeliveryTaskStatus.ReturnScheduled, DeliveryTaskStatus.Returned)]
     public void Allows_valid_transitions(DeliveryTaskStatus from, DeliveryTaskStatus to)
     {
         Assert.True(DeliveryTaskStateMachine.CanTransition(from, to));
@@ -31,6 +33,10 @@ public class DeliveryTaskStateMachineTests
     [InlineData(DeliveryTaskStatus.Delivered, DeliveryTaskStatus.Cancelled)]
     [InlineData(DeliveryTaskStatus.Cancelled, DeliveryTaskStatus.Created)]
     [InlineData(DeliveryTaskStatus.InTransit, DeliveryTaskStatus.Cancelled)]
+    [InlineData(DeliveryTaskStatus.InTransit, DeliveryTaskStatus.ReturnScheduled)]
+    [InlineData(DeliveryTaskStatus.AttemptFailed, DeliveryTaskStatus.Returned)]
+    [InlineData(DeliveryTaskStatus.ReturnScheduled, DeliveryTaskStatus.InTransit)]
+    [InlineData(DeliveryTaskStatus.Returned, DeliveryTaskStatus.Created)]
     public void Rejects_invalid_transitions(DeliveryTaskStatus from, DeliveryTaskStatus to)
     {
         Assert.False(DeliveryTaskStateMachine.CanTransition(from, to));
@@ -41,8 +47,10 @@ public class DeliveryTaskStateMachineTests
     {
         Assert.True(DeliveryTaskStateMachine.IsTerminal(DeliveryTaskStatus.Delivered));
         Assert.True(DeliveryTaskStateMachine.IsTerminal(DeliveryTaskStatus.Cancelled));
+        Assert.True(DeliveryTaskStateMachine.IsTerminal(DeliveryTaskStatus.Returned));
         Assert.False(DeliveryTaskStateMachine.IsTerminal(DeliveryTaskStatus.Created));
         Assert.False(DeliveryTaskStateMachine.IsTerminal(DeliveryTaskStatus.AttemptFailed));
+        Assert.False(DeliveryTaskStateMachine.IsTerminal(DeliveryTaskStatus.ReturnScheduled));
     }
 
     [Fact]

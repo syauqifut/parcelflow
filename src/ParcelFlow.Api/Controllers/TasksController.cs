@@ -76,6 +76,10 @@ public sealed class TasksController : ControllerBase
     public async Task<IActionResult> Retry(string id, CancellationToken ct)
         => ToResponse(await _tasks.RetryAsync(id, ct));
 
+    [HttpPost("{id}/return-completed")]
+    public async Task<IActionResult> ReturnCompleted(string id, CancellationToken ct)
+        => ToResponse(await _tasks.CompleteReturnAsync(id, ct));
+
     [HttpPost("{id}/cancel")]
     public async Task<IActionResult> Cancel(string id, [FromBody] CancelRequest request, CancellationToken ct)
         => ToResponse(await _tasks.CancelAsync(id, request.Reason, ct));

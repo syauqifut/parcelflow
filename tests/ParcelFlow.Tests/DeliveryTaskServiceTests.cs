@@ -128,4 +128,128 @@ public class DeliveryTaskServiceTests
 
         Assert.False(result.IsSuccess);
     }
+
+    [Fact]
+    public async Task Third_failed_attempt_schedules_return()
+    {
+        using var world = new TestWorld();
+        var parcel = await world.SeedParcelAsync();
+        var driver = await world.SeedDriverAsync();
+        await world.SeedOpenShiftAsync(driver);
+        var task = (await world.TaskService.CreateForParcelAsync(parcel.Id)).Value!;
+        await world.TaskService.AssignAsync(task.Id, driver.Id);
+        await world.TaskService.RecordPickupAsync(task.Id);
+        await world.TaskService.StartTransitAsync(task.Id);
+
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            await world.TaskService.RecordFailedAttemptAsync(task.Id, $"failure {attempt}");
+            await world.TaskService.RetryAsync(task.Id);
+        }
+
+        var thirdFailure = await world.TaskService.RecordFailedAttemptAsync(task.Id, "failure 3");
+
+        Assert.True(thirdFailure.IsSuccess);
+        Assert.Equal(DeliveryTaskStatus.ReturnScheduled, thirdFailure.Value!.Status);
+        Assert.Equal(3, thirdFailure.Value.AttemptCount);
+        var history = thirdFailure.Value.History;
+        Assert.Equal(DeliveryTaskStatus.InTransit, history[^2].From);
+        Assert.Equal(DeliveryTaskStatus.AttemptFailed, history[^2].To);
+        Assert.Equal(DeliveryTaskStatus.AttemptFailed, history[^1].From);
+        Assert.Equal(DeliveryTaskStatus.ReturnScheduled, history[^1].To);
+    }
+
+    [Fact]
+    public async Task Retry_rejected_after_max_delivery_attempts()
+    {
+        using var world = new TestWorld();
+        var parcel = await world.SeedParcelAsync();
+        var driver = await world.SeedDriverAsync();
+        await world.SeedOpenShiftAsync(driver);
+        var task = (await world.TaskService.CreateForParcelAsync(parcel.Id)).Value!;
+        await world.TaskService.AssignAsync(task.Id, driver.Id);
+        await world.TaskService.RecordPickupAsync(task.Id);
+        await world.TaskService.StartTransitAsync(task.Id);
+
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            await world.TaskService.RecordFailedAttemptAsync(task.Id, $"failure {attempt}");
+            await world.TaskService.RetryAsync(task.Id);
+        }
+
+        await world.TaskService.RecordFailedAttemptAsync(task.Id, "failure 3");
+        var retry = await world.TaskService.RetryAsync(task.Id);
+
+        Assert.False(retry.IsSuccess);
+    }
+
+    [Fact]
+    public async Task Complete_return_moves_task_to_returned_terminal_state()
+    {
+        using var world = new TestWorld();
+        var parcel = await world.SeedParcelAsync();
+        var driver = await world.SeedDriverAsync();
+        await world.SeedOpenShiftAsync(driver);
+        var task = (await world.TaskService.CreateForParcelAsync(parcel.Id)).Value!;
+        await world.TaskService.AssignAsync(task.Id, driver.Id);
+        await world.TaskService.RecordPickupAsync(task.Id);
+        await world.TaskService.StartTransitAsync(task.Id);
+
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            await world.TaskService.RecordFailedAttemptAsync(task.Id, $"failure {attempt}");
+            await world.TaskService.RetryAsync(task.Id);
+        }
+
+        await world.TaskService.RecordFailedAttemptAsync(task.Id, "failure 3");
+        var completed = await world.TaskService.CompleteReturnAsync(task.Id);
+
+        Assert.True(completed.IsSuccess);
+        Assert.Equal(DeliveryTaskStatus.Returned, completed.Value!.Status);
+        Assert.NotNull(completed.Value.ReturnedUtc);
+    }
+
+    [Fact]
+    public async Task Cannot_complete_return_from_non_scheduled_status()
+    {
+        using var world = new TestWorld();
+        var parcel = await world.SeedParcelAsync();
+        var driver = await world.SeedDriverAsync();
+        await world.SeedOpenShiftAsync(driver);
+        var task = (await world.TaskService.CreateForParcelAsync(parcel.Id)).Value!;
+        await world.TaskService.AssignAsync(task.Id, driver.Id);
+        await world.TaskService.RecordPickupAsync(task.Id);
+        await world.TaskService.StartTransitAsync(task.Id);
+
+        var result = await world.TaskService.CompleteReturnAsync(task.Id);
+
+        Assert.False(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task New_task_allowed_after_previous_task_returned()
+    {
+        using var world = new TestWorld();
+        var parcel = await world.SeedParcelAsync();
+        var driver = await world.SeedDriverAsync();
+        await world.SeedOpenShiftAsync(driver);
+        var task = (await world.TaskService.CreateForParcelAsync(parcel.Id)).Value!;
+        await world.TaskService.AssignAsync(task.Id, driver.Id);
+        await world.TaskService.RecordPickupAsync(task.Id);
+        await world.TaskService.StartTransitAsync(task.Id);
+
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            await world.TaskService.RecordFailedAttemptAsync(task.Id, $"failure {attempt}");
+            await world.TaskService.RetryAsync(task.Id);
+        }
+
+        await world.TaskService.RecordFailedAttemptAsync(task.Id, "failure 3");
+        await world.TaskService.CompleteReturnAsync(task.Id);
+
+        var secondTask = await world.TaskService.CreateForParcelAsync(parcel.Id);
+
+        Assert.True(secondTask.IsSuccess);
+        Assert.Equal(DeliveryTaskStatus.Created, secondTask.Value!.Status);
+    }
 }

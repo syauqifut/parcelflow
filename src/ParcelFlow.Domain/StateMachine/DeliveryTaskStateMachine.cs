@@ -9,8 +9,9 @@ namespace ParcelFlow.Domain.StateMachine;
 ///      │            │                        │  ▲
 ///      ▼            ▼                        ▼  │ (retry)
 ///  Cancelled    Cancelled              AttemptFailed ──► Cancelled
-///                   │
-///                   └──► Created (unassign)
+///                   │                        │
+///                   └──► Created (unassign)   └──► ReturnScheduled ──► Returned (terminal)
+///                              (3rd failure)
 ///
 /// Any status change anywhere in the platform MUST go through
 /// <see cref="Transition"/> so the audit history stays complete and invalid
@@ -25,9 +26,16 @@ public static class DeliveryTaskStateMachine
             [DeliveryTaskStatus.Assigned] = new[] { DeliveryTaskStatus.PickedUp, DeliveryTaskStatus.Created, DeliveryTaskStatus.Cancelled },
             [DeliveryTaskStatus.PickedUp] = new[] { DeliveryTaskStatus.InTransit },
             [DeliveryTaskStatus.InTransit] = new[] { DeliveryTaskStatus.Delivered, DeliveryTaskStatus.AttemptFailed },
-            [DeliveryTaskStatus.AttemptFailed] = new[] { DeliveryTaskStatus.InTransit, DeliveryTaskStatus.Cancelled },
+            [DeliveryTaskStatus.AttemptFailed] = new[]
+            {
+                DeliveryTaskStatus.InTransit,
+                DeliveryTaskStatus.Cancelled,
+                DeliveryTaskStatus.ReturnScheduled
+            },
+            [DeliveryTaskStatus.ReturnScheduled] = new[] { DeliveryTaskStatus.Returned },
             [DeliveryTaskStatus.Delivered] = Array.Empty<DeliveryTaskStatus>(),
-            [DeliveryTaskStatus.Cancelled] = Array.Empty<DeliveryTaskStatus>()
+            [DeliveryTaskStatus.Cancelled] = Array.Empty<DeliveryTaskStatus>(),
+            [DeliveryTaskStatus.Returned] = Array.Empty<DeliveryTaskStatus>()
         };
 
     public static bool CanTransition(DeliveryTaskStatus from, DeliveryTaskStatus to)

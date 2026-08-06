@@ -21,5 +21,11 @@ public enum DeliveryTaskStatus
     Delivered = 5,
 
     /// <summary>Task cancelled by the operator. Terminal.</summary>
-    Cancelled = 6
+    Cancelled = 6,
+
+    /// <summary>Third delivery attempt failed; parcel scheduled for return to sender.</summary>
+    ReturnScheduled = 7,
+
+    /// <summary>Parcel returned to hub/sender. Terminal.</summary>
+    Returned = 8
 }

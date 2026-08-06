@@ -13,6 +13,8 @@ namespace ParcelFlow.Services;
 /// </summary>
 public sealed class DeliveryTaskService
 {
+    private const int MaxDeliveryAttempts = 3;
+
     private readonly ITenantContext _tenant;
     private readonly ITenantScopedRepository<DeliveryTask> _tasks;
     private readonly ITenantScopedRepository<Parcel> _parcels;
@@ -51,7 +53,8 @@ public sealed class DeliveryTaskService
             _tenant.TenantId,
             t => t.ParcelId == parcelId
                  && t.Status != DeliveryTaskStatus.Delivered
-                 && t.Status != DeliveryTaskStatus.Cancelled,
+                 && t.Status != DeliveryTaskStatus.Cancelled
+                 && t.Status != DeliveryTaskStatus.Returned,
             ct);
         if (existing.Count > 0)
         {
@@ -156,28 +159,65 @@ public sealed class DeliveryTaskService
 
     public async Task<Result<DeliveryTask>> RecordFailedAttemptAsync(string taskId, string reason, CancellationToken ct = default)
     {
-        var result = await TransitionAsync(taskId, DeliveryTaskStatus.AttemptFailed, reason,
-            (task, _) => task.AttemptCount++, ct);
-
-        if (result.IsSuccess && result.Value is not null)
+        var task = await _tasks.GetAsync(_tenant.TenantId, taskId, ct);
+        if (task is null)
         {
-            await _events.DispatchAsync(new DeliveryAttemptFailedEvent
-            {
-                TenantId = _tenant.TenantId,
-                OccurredUtc = _clock.UtcNow,
-                Task = result.Value,
-                AttemptNumber = result.Value.AttemptCount,
-                Reason = reason
-            }, ct);
+            return Result<DeliveryTask>.Fail($"Task '{taskId}' not found.");
         }
 
-        return result;
+        var now = _clock.UtcNow;
+        try
+        {
+            DeliveryTaskStateMachine.Transition(task, DeliveryTaskStatus.AttemptFailed, now, reason);
+            task.AttemptCount++;
+
+            if (task.AttemptCount >= MaxDeliveryAttempts)
+            {
+                DeliveryTaskStateMachine.Transition(task, DeliveryTaskStatus.ReturnScheduled, now,
+                    "Third delivery attempt failed; scheduled for return to sender");
+            }
+        }
+        catch (InvalidStateTransitionException ex)
+        {
+            return Result<DeliveryTask>.Fail(ex.Message);
+        }
+
+        await _tasks.UpsertAsync(task, ct);
+
+        await _events.DispatchAsync(new DeliveryAttemptFailedEvent
+        {
+            TenantId = _tenant.TenantId,
+            OccurredUtc = now,
+            Task = task,
+            AttemptNumber = task.AttemptCount,
+            Reason = reason
+        }, ct);
+
+        return Result<DeliveryTask>.Ok(task);
     }
 
     /// <summary>Puts a failed task back on the road for another attempt.</summary>
     public async Task<Result<DeliveryTask>> RetryAsync(string taskId, CancellationToken ct = default)
     {
+        var task = await _tasks.GetAsync(_tenant.TenantId, taskId, ct);
+        if (task is null)
+        {
+            return Result<DeliveryTask>.Fail($"Task '{taskId}' not found.");
+        }
+
+        if (task.AttemptCount >= MaxDeliveryAttempts)
+        {
+            return Result<DeliveryTask>.Fail("Maximum delivery attempts reached; task is scheduled for return.");
+        }
+
         return await TransitionAsync(taskId, DeliveryTaskStatus.InTransit, "Retrying delivery", null, ct);
+    }
+
+    /// <summary>Hub confirms the parcel has been returned to the sender.</summary>
+    public async Task<Result<DeliveryTask>> CompleteReturnAsync(string taskId, CancellationToken ct = default)
+    {
+        return await TransitionAsync(taskId, DeliveryTaskStatus.Returned, "Parcel returned to sender at hub",
+            (task, now) => task.ReturnedUtc = now, ct);
     }
 
     public async Task<Result<DeliveryTask>> CancelAsync(string taskId, string reason, CancellationToken ct = default)

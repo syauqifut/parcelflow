@@ -22,6 +22,7 @@ public sealed class DeliveryTask : TenantDocument
     public DateTime? AssignedUtc { get; set; }
     public DateTime? PickedUpUtc { get; set; }
     public DateTime? DeliveredUtc { get; set; }
+    public DateTime? ReturnedUtc { get; set; }
 
     /// <summary>Free-text note captured at proof of delivery.</summary>
     public string? PodNote { get; set; }
