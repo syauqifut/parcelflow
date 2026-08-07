@@ -74,6 +74,11 @@ Fixed cross-tenant leak in daily report (A), added return-to-sender lifecycle (B
 - Reused the existing reporting architecture.
 - Choose CSV over XLSX (simpler, no extra lib).
 - `GET /api/reports/weekly-summary` → CSV download.
+- Weekly metrics use event-based logic, not daily report semantics (see Trade-offs).
+- Window: `[day - 7 days, day)` — e.g. `?day=2026-07-04` covers 27 Jun–3 Jul (exclusive of 4 Jul).
+- Tasks delivered: count tasks with `DeliveredUtc` in the window, grouped by driver.
+- Failed attempts: count `History` transitions to `AttemptFailed` in the window (includes undelivered tasks and failures before eventual delivery). Does not include cancellations or unattempted assignments.
+- Average hours: mean `(DeliveredUtc - AssignedUtc)` for tasks delivered in the window.
 
 ### Implementation
 - Added `GetWeeklySummaryAsync` to `ReportService`.
@@ -91,3 +96,4 @@ Fixed cross-tenant leak in daily report (A), added return-to-sender lifecycle (B
 - Chose CSV over XLSX to keep the implementation simple and dependency-free.
 - The return workflow ends at `Returned`; ParcelFlow models only the last-mile delivery process.
 - Weekly reporting is exposed as an API endpoint. Scheduling and email delivery are intentionally left outside the assignment scope.
+- Daily vs weekly report logic The daily summary is legacy DataWarehouse code (PF-902) — `UpdatedUtc` filter and `AttemptCount` totals — kept unchanged apart from the Part A tenant scoping fix. The weekly summary is a new Part C feature with different requirements (driver performance over 7 days), so it uses `DeliveredUtc` and audit `History` for window-accurate metrics. Aligning both reports is deferred to PF-902.
